@@ -4,13 +4,16 @@ from datetime import datetime
 from supabase import create_client
 
 # ---------------------------
-# Config - Read from Streamlit secrets
+# Config (Streamlit Secrets)
 # ---------------------------
+# In Streamlit Cloud -> Settings -> Secrets, add:
+# SUPABASE_URL = "https://....supabase.co"
+# SUPABASE_ANON_KEY = "eyJ...."
 try:
-    SUPABASE_URL = st.secrets["https://eqvhzxljdcoeigbyqrlg.supabase.co"]
-    SUPABASE_ANON_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdmh6eGxqZGNvZWlnYnlxcmxnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU4MDg1OTcsImV4cCI6MjA4MTM4NDU5N30.q71CAFw3UsjiNwW8oM66HiHbWxGQZQzKRcISoPOO8QE"]
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 except KeyError:
-    st.error("❌ Missing secrets! Add SUPABASE_URL and SUPABASE_ANON_KEY in Streamlit Cloud secrets.")
+    st.error("Missing secrets. Add SUPABASE_URL and SUPABASE_ANON_KEY in Streamlit Cloud → Settings → Secrets.")
     st.stop()
 
 ORGS = ["Warehouse", "Bosch", "TDK", "Mathma Nagar"]
@@ -23,6 +26,7 @@ st.set_page_config(page_title="T‑Shirt Inventory Dashboard", layout="wide")
 
 @st.cache_resource
 def get_client():
+    # Supabase python client init pattern [web:248]
     return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 
@@ -74,7 +78,7 @@ def get_pending_transfers_for_org(org: str):
         .select("id,from_org,to_org,status,reason,created_by_name,created_by_username,created_at")
         .eq("to_org", org)
         .eq("status", "pending")
-        .order("created_at")
+        .order("created_at", desc=False)
         .execute()
     )
     tdf = sb_to_df(t)
@@ -86,28 +90,31 @@ def get_pending_transfers_for_org(org: str):
         client.table("stock_transfer_items")
         .select("transfer_id,category,size,quantity")
         .in_("transfer_id", ids)
-        .order("category")
-        .order("size")
+        .order("category", desc=False)
+        .order("size", desc=False)
         .execute()
     )
     idf = sb_to_df(items)
     return tdf, idf
 
 
-def get_pending_transfers_created_by_warehouse():
+def get_transfers_created_by_warehouse(limit=200):
     t = (
         client.table("stock_transfers")
-        .select("id,from_org,to_org,status,reason,created_by_name,created_by_username,created_at,decided_at,decided_by_name,reject_note")
+        .select(
+            "id,from_org,to_org,status,reason,created_by_name,created_by_username,"
+            "created_at,decided_at,decided_by_name,decided_by_username,reject_note"
+        )
         .eq("from_org", "Warehouse")
         .order("created_at", desc=True)
-        .limit(200)
+        .limit(limit)
         .execute()
     )
     tdf = sb_to_df(t)
+
     items = (
         client.table("stock_transfer_items")
         .select("transfer_id,category,size,quantity")
-        .order("transfer_id", desc=True)
         .execute()
     )
     idf = sb_to_df(items)
@@ -117,10 +124,10 @@ def get_pending_transfers_created_by_warehouse():
 def make_transfer_items_from_inputs(kids_map, adults_map):
     items = []
     for size, qty in kids_map.items():
-        if qty and qty > 0:
+        if int(qty) > 0:
             items.append({"category": "kids", "size": str(size), "quantity": int(qty)})
     for size, qty in adults_map.items():
-        if qty and qty > 0:
+        if int(qty) > 0:
             items.append({"category": "adults", "size": str(size), "quantity": int(qty)})
     return items
 
@@ -146,7 +153,7 @@ def stock_totals_by_org(stock_df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------
-# Auth UI
+# UI
 # ---------------------------
 st.title("Inventory Dashboard (Warehouse + Bosch + TDK + Mathma Nagar)")
 
@@ -182,13 +189,11 @@ with st.sidebar:
                 st.rerun()
 
     st.divider()
-    st.caption("Note: anon + RLS open is not secure for production.")
+    st.caption("Note: Your current DB policies allow anon access. Not secure for production.")
 
 
-# ---------------------------
-# Tabs
-# ---------------------------
 tabs = st.tabs(["Overview", "Warehouse: Create Queue", "Org: Confirm Queue", "Transactions"])
+
 
 # ---------------------------
 # Overview
@@ -200,8 +205,7 @@ with tabs[0]:
     with colA:
         st.subheader("Stock totals by organization")
     with colB:
-        if st.button("Refresh data"):
-            st.cache_data.clear()
+        if st.button("Refresh overview"):
             st.rerun()
 
     stock_df = get_stock_df()
@@ -211,7 +215,13 @@ with tabs[0]:
     st.subheader("Per-size stock (filtered)")
     c1, c2, c3 = st.columns(3)
     with c1:
-        org_filter = st.selectbox("Organization", ORGS, index=ORGS.index(st.session_state["user"]["organization"]))
+        org_filter = st.selectbox(
+            "Organization",
+            ORGS,
+            index=ORGS.index(st.session_state["user"]["organization"])
+            if st.session_state["user"]["organization"] in ORGS
+            else 0,
+        )
     with c2:
         cat_filter = st.selectbox("Category", ["all"] + CATEGORIES, index=0)
     with c3:
@@ -228,7 +238,7 @@ with tabs[0]:
 
 
 # ---------------------------
-# Warehouse: create transfer queue
+# Warehouse: Create Queue (pending transfer)
 # ---------------------------
 with tabs[1]:
     require_login()
@@ -248,53 +258,54 @@ with tabs[1]:
     kids_map = {}
     for i, size in enumerate(KIDS_SIZES):
         with kids_cols[i]:
-            kids_map[size] = st.number_input(f"Kids {size}", min_value=0, step=1, value=0, key=f"k_{size}")
+            kids_map[size] = st.number_input(f"Kids {size}", min_value=0, step=1, value=0, key=f"kids_{size}")
 
     adult_cols = st.columns(len(ADULT_SIZES))
     adults_map = {}
     for i, size in enumerate(ADULT_SIZES):
         with adult_cols[i]:
-            adults_map[size] = st.number_input(f"Adults {size}", min_value=0, step=1, value=0, key=f"a_{size}")
+            adults_map[size] = st.number_input(f"Adults {size}", min_value=0, step=1, value=0, key=f"adults_{size}")
 
     items = make_transfer_items_from_inputs(kids_map, adults_map)
     total_qty = sum(x["quantity"] for x in items)
-
     st.write(f"Total qty: {total_qty}")
 
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        if st.button("Create transfer request", disabled=(total_qty == 0)):
-            try:
-                resp = (
-                    client.rpc(
-                        "create_stock_transfer",
-                        {
-                            "p_from_org": "Warehouse",
-                            "p_to_org": to_org,
-                            "p_items": items,
-                            "p_reason": reason or None,
-                            "p_created_by_name": user["name"],
-                            "p_created_by_username": user["username"],
-                        },
-                    ).execute()
-                )
-                st.success(f"Created transfer request. Response: {resp.data}")
-            except Exception as e:
-                st.error(f"Failed: {e}")
+    if st.button("Create transfer request", disabled=(total_qty == 0)):
+        try:
+            # Supabase RPC call pattern [web:206]
+            resp = (
+                client.rpc(
+                    "create_stock_transfer",
+                    {
+                        "p_from_org": "Warehouse",
+                        "p_to_org": to_org,
+                        "p_items": items,
+                        "p_reason": reason or None,
+                        "p_created_by_name": user["name"],
+                        "p_created_by_username": user["username"],
+                    },
+                ).execute()
+            )
+            st.success(f"Created transfer request. Transfer id: {resp.data}")
+        except Exception as e:
+            st.error(f"Create failed: {e}")
 
     st.divider()
-    st.subheader("Recent transfer requests (Warehouse)")
-    tdf, idf = get_pending_transfers_created_by_warehouse()
+    st.subheader("Recent transfers created by Warehouse")
+    tdf, idf = get_transfers_created_by_warehouse()
+
     if tdf.empty:
         st.write("No transfers found.")
     else:
-        if not idf.empty:
-            grouped = idf.groupby("transfer_id").apply(
-                lambda x: ", ".join([f"{r['category']}-{r['size']}:{r['quantity']}" for _, r in x.iterrows()])
-            ).reset_index(name="items")
-            out = tdf.merge(grouped, left_on="id", right_on="transfer_id", how="left").drop(columns=["transfer_id"])
+        out = tdf.copy()
+        if not idf.empty and "id" in out.columns:
+            grouped = (
+                idf.groupby("transfer_id")
+                .apply(lambda x: ", ".join([f"{r['category']}-{r['size']}:{r['quantity']}" for _, r in x.iterrows()]))
+                .reset_index(name="items")
+            )
+            out = out.merge(grouped, left_on="id", right_on="transfer_id", how="left").drop(columns=["transfer_id"])
         else:
-            out = tdf.copy()
             out["items"] = ""
 
         out["created_at"] = out["created_at"].apply(fmt_ts)
@@ -307,7 +318,7 @@ with tabs[1]:
 
 
 # ---------------------------
-# Org: confirm queue
+# Org: Confirm Queue (accept/reject)
 # ---------------------------
 with tabs[2]:
     require_login()
@@ -315,11 +326,10 @@ with tabs[2]:
     org = user["organization"]
 
     if org == "Warehouse":
-        st.info("Warehouse does not accept queue requests here. Use the Warehouse tab to create them.")
+        st.info("Warehouse does not accept queue requests here.")
         st.stop()
 
     st.subheader(f"Pending requests for {org}")
-
     tdf, idf = get_pending_transfers_for_org(org)
 
     if tdf.empty:
@@ -342,16 +352,14 @@ with tabs[2]:
                 with c1:
                     if st.button(f"Accept #{transfer_id}", key=f"acc_{transfer_id}"):
                         try:
-                            resp = (
-                                client.rpc(
-                                    "accept_stock_transfer",
-                                    {
-                                        "p_transfer_id": transfer_id,
-                                        "p_decided_by_name": user["name"],
-                                        "p_decided_by_username": user["username"],
-                                    },
-                                ).execute()
-                            )
+                            client.rpc(
+                                "accept_stock_transfer",
+                                {
+                                    "p_transfer_id": transfer_id,
+                                    "p_decided_by_name": user["name"],
+                                    "p_decided_by_username": user["username"],
+                                },
+                            ).execute()
                             st.success(f"Accepted #{transfer_id}.")
                             st.rerun()
                         except Exception as e:
@@ -364,16 +372,14 @@ with tabs[2]:
                             st.warning("Reject note required.")
                         else:
                             try:
-                                resp = (
-                                    client.rpc(
-                                        "reject_stock_transfer",
-                                        {
-                                            "p_transfer_id": transfer_id,
-                                            "p_reject_note": note.strip(),
-                                            "p_decided_by_name": user["name"],
-                                        },
-                                    ).execute()
-                                )
+                                client.rpc(
+                                    "reject_stock_transfer",
+                                    {
+                                        "p_transfer_id": transfer_id,
+                                        "p_reject_note": note.strip(),
+                                        "p_decided_by_name": user["name"],
+                                    },
+                                ).execute()
                                 st.success(f"Rejected #{transfer_id}.")
                                 st.rerun()
                             except Exception as e:
@@ -386,7 +392,7 @@ with tabs[2]:
 with tabs[3]:
     require_login()
 
-    st.subheader("Transactions")
+    st.subheader("Transactions (latest 500)")
     tdf = get_transactions_df(limit=500)
     if tdf.empty:
         st.write("No transactions.")
