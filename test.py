@@ -23,13 +23,13 @@ st.markdown(
         --soft-red: rgba(239,68,68,0.08);
       }
 
-      /* Main page background + default text */
+      /* Main background */
       html, body, [data-testid="stAppViewContainer"], .stApp {
         background: var(--white) !important;
         color: var(--black) !important;
       }
 
-      /* Sidebar */
+      /* Sidebar background */
       [data-testid="stSidebar"]{
         background: var(--white) !important;
         border-right: 1px solid var(--border) !important;
@@ -38,17 +38,17 @@ st.markdown(
         color: var(--black) !important;
       }
 
-      /* Header */
+      /* Header background */
       [data-testid="stHeader"]{
         background: var(--white) !important;
       }
 
-      /* FORCE all headings + text to black */
+      /* Force all text black */
       h1,h2,h3,h4,h5,h6,p,span,div,label,small,li,strong,em,code {
         color: var(--black) !important;
       }
 
-      /* Links: red only */
+      /* Links red */
       a, a:visited { color: var(--red) !important; }
 
       /* Tabs */
@@ -68,16 +68,45 @@ st.markdown(
         padding: 14px 14px !important;
       }
 
-      /* Inputs / select / date */
-      .stTextInput input, .stNumberInput input, .stDateInput input {
+      /* ---------------------------
+         INPUTS: force WHITE
+         --------------------------- */
+
+      /* Text + password + number + date inputs */
+      .stTextInput input,
+      .stNumberInput input,
+      .stDateInput input,
+      .stTextArea textarea {
         background: var(--white) !important;
         color: var(--black) !important;
         border: 1px solid var(--border) !important;
+        border-radius: 12px !important;
       }
+
+      /* Some Streamlit versions wrap inputs inside extra divs */
+      .stTextInput div[data-baseweb="input"] > div,
+      .stNumberInput div[data-baseweb="input"] > div,
+      .stDateInput div[data-baseweb="input"] > div {
+        background: var(--white) !important;
+      }
+
+      /* Selectbox */
       .stSelectbox [data-baseweb="select"] > div{
         background: var(--white) !important;
         color: var(--black) !important;
         border: 1px solid var(--border) !important;
+        border-radius: 12px !important;
+      }
+
+      /* Select dropdown menu */
+      ul[role="listbox"]{
+        background: var(--white) !important;
+        color: var(--black) !important;
+        border: 1px solid var(--border) !important;
+      }
+      li[role="option"]{
+        background: var(--white) !important;
+        color: var(--black) !important;
       }
 
       /* Buttons: white with red border */
@@ -93,12 +122,19 @@ st.markdown(
         border-color: var(--red) !important;
       }
 
-      /* Dataframe container */
+      /* ---------------------------
+         TABLES / DATAFRAMES: force WHITE
+         --------------------------- */
       [data-testid="stDataFrame"]{
+        background: var(--white) !important;
         border: 1px solid var(--border) !important;
         border-radius: 14px !important;
         overflow: hidden !important;
-        background: var(--white) !important;
+      }
+
+      /* Some dataframe internal containers */
+      [data-testid="stDataFrame"] *{
+        color: var(--black) !important;
       }
 
       /* Expander */
@@ -353,7 +389,6 @@ with tabs[0]:
     st.markdown("**IN/OUT totals by organization (transactions)**")
     st.dataframe(tx_summary, use_container_width=True, hide_index=True)
 
-    # Graphs at bottom
     st.divider()
     st.subheader("Graphs")
 
