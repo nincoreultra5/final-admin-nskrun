@@ -7,8 +7,8 @@ from supabase import create_client
 # Config - Read from Streamlit secrets
 # ---------------------------
 try:
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
+    SUPABASE_URL = st.secrets["https://eqvhzxljdcoeigbyqrlg.supabase.co"]
+    SUPABASE_ANON_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdmh6eGxqZGNvZWlnYnlxcmxnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU4MDg1OTcsImV4cCI6MjA4MTM4NDU5N30.q71CAFw3UsjiNwW8oM66HiHbWxGQZQzKRcISoPOO8QE"]
 except KeyError:
     st.error("❌ Missing secrets! Add SUPABASE_URL and SUPABASE_ANON_KEY in Streamlit Cloud secrets.")
     st.stop()
