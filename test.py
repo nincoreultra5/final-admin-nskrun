@@ -142,7 +142,6 @@ except KeyError:
 
 ORGS = ["Warehouse", "Bosch", "TDK", "Mathma Nagar"]
 CATEGORIES = ["kids", "adults"]
-SIZES = [str(i) for i in range(24, 49)]  # 24 to 48 sizes
 
 # ---------------------------
 # Supabase client
@@ -184,23 +183,24 @@ def get_transactions_df(limit=5000):
     return df
 
 def stock_totals_by_org_size(stock_df: pd.DataFrame) -> pd.DataFrame:
-    """Stock totals per organization and size"""
+    """Stock totals per organization and size - ONLY available combinations"""
     if stock_df.empty:
-        empty_df = pd.DataFrame(index=ORGS, columns=SIZES).fillna(0)
-        return empty_df
+        return pd.DataFrame()
     
-    totals = stock_df.groupby(["organization", "size"], as_index=False)["quantity"].sum()
+    # Get unique organizations and sizes that actually have data
+    available_orgs = stock_df["organization"].unique()
+    available_sizes = stock_df["size"].dropna().unique()
+    
+    # Filter to only available data
+    filtered_df = stock_df[stock_df["organization"].isin(available_orgs) & 
+                          stock_df["size"].isin(available_sizes)]
+    
+    totals = filtered_df.groupby(["organization", "size"], as_index=False)["quantity"].sum()
+    if totals.empty:
+        return pd.DataFrame()
+    
     pivot = totals.pivot(index="organization", columns="size", values="quantity").fillna(0)
-    
-    # Ensure all organizations and sizes are present
-    for org in ORGS:
-        if org not in pivot.index:
-            pivot.loc[org] = 0
-    for size in SIZES:
-        if size not in pivot.columns:
-            pivot[size] = 0
-    
-    return pivot[ORGS + SIZES].reindex(ORGS)
+    return pivot
 
 def current_stock_kpis(stock_df: pd.DataFrame) -> dict:
     """Current stock per organization"""
@@ -256,12 +256,10 @@ out_by_org = get_out_by_org(tx_df)
 pie_data = stock_pie_data(stock_df)
 
 # ---------------------------
-# Sidebar - Size filter only
+# Sidebar - Simple refresh only
 # ---------------------------
 with st.sidebar:
-    st.header("Filters")
-    size_filter = st.multiselect("Sizes", options=SIZES, default=SIZES)
-    
+    st.header("Controls")
     if st.button("Refresh data"):
         st.cache_data.clear()
         st.rerun()
@@ -290,27 +288,28 @@ with tabs[0]:
 
     st.divider()
     
-    # Per Company Stock by Size Table
-    st.subheader("📊 Stock by Company & Size (24-48)")
+    # Per Company Stock by Size Table - ONLY AVAILABLE DATA
+    st.subheader("📊 Stock by Company & Available Sizes")
     stock_size_table = stock_totals_by_org_size(stock_df)
-    st.dataframe(stock_size_table, use_container_width=True, hide_index=True)
+    if not stock_size_table.empty:
+        st.dataframe(stock_size_table, use_container_width=True, hide_index=True)
+    else:
+        st.info("No stock data available.")
     
     st.divider()
     
-    # Simple Pie Chart using native Streamlit
-    st.subheader("🍰 Stock Distribution by Organization")
+    # Simple Distribution Chart
+    st.subheader("📈 Stock Distribution by Organization")
     if not pie_data.empty and pie_data["quantity"].sum() > 0:
         st.bar_chart(pie_data.set_index("organization")["quantity"], height=400)
-        # Display percentages manually
+        # Display percentages
         total_stock = pie_data["quantity"].sum()
-        col1, col2, col3, col4 = st.columns(4)
         for idx, row in pie_data.iterrows():
             if row["quantity"] > 0:
                 pct = (row["quantity"] / total_stock * 100)
-                with locals()[f"col{idx+1}"]:
-                    st.metric(f"{row['organization']}", f"{int(row['quantity'])}", f"{pct:.1f}%")
+                st.metric(f"{row['organization']}", f"{int(row['quantity'])}", f"{pct:.1f}%")
     else:
-        st.info("No stock data available for pie chart.")
+        st.info("No stock data available for distribution chart.")
 
 # ---------------------------
 # Transactions Tab
@@ -321,15 +320,13 @@ with tabs[1]:
     if tx_df.empty:
         st.write("No transactions.")
     else:
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         with c1:
             org_f = st.selectbox("Org", ["all"] + ORGS, index=0)
         with c2:
             typ_f = st.selectbox("Type", ["all", "in", "out"], index=0)
         with c3:
             cat_f = st.selectbox("Category", ["all"] + CATEGORIES, index=0)
-        with c4:
-            size_f = st.selectbox("Size", ["all"] + SIZES, index=0)
 
         df = tx_df.copy()
         if org_f != "all":
@@ -338,8 +335,6 @@ with tabs[1]:
             df = df[df["type"] == typ_f]
         if cat_f != "all":
             df = df[df["category"] == cat_f]
-        if size_f != "all":
-            df = df[df["size"] == size_f]
 
         df = df.sort_values("created_at", ascending=False).copy()
         df["created_at"] = df["created_at"].dt.strftime("%Y-%m-%d %H:%M")
