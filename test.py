@@ -183,24 +183,36 @@ def get_transactions_df(limit=5000):
     return df
 
 def stock_totals_by_org_size(stock_df: pd.DataFrame) -> pd.DataFrame:
-    """Stock totals per organization and size - ONLY available combinations"""
+    """Stock totals per organization and size - ONLY available combinations with company names"""
     if stock_df.empty:
         return pd.DataFrame()
     
     # Get unique organizations and sizes that actually have data
     available_orgs = stock_df["organization"].unique()
-    available_sizes = stock_df["size"].dropna().unique()
+    available_sizes = sorted(stock_df["size"].dropna().unique())
     
-    # Filter to only available data
-    filtered_df = stock_df[stock_df["organization"].isin(available_orgs) & 
-                          stock_df["size"].isin(available_sizes)]
-    
-    totals = filtered_df.groupby(["organization", "size"], as_index=False)["quantity"].sum()
-    if totals.empty:
+    if len(available_orgs) == 0 or len(available_sizes) == 0:
         return pd.DataFrame()
     
+    # Group and pivot
+    totals = stock_df.groupby(["organization", "size"], as_index=False)["quantity"].sum()
     pivot = totals.pivot(index="organization", columns="size", values="quantity").fillna(0)
-    return pivot
+    
+    # Reset index to make organization a column
+    result = pivot.reset_index()
+    
+    # Ensure all available organizations are present
+    for org in available_orgs:
+        if org not in result["organization"].values:
+            new_row = pd.DataFrame({"organization": [org]})
+            for size in available_sizes:
+                new_row[size] = 0
+            result = pd.concat([result, new_row], ignore_index=True)
+    
+    # Sort by organization name
+    result = result.sort_values("organization").reset_index(drop=True)
+    
+    return result
 
 def current_stock_kpis(stock_df: pd.DataFrame) -> dict:
     """Current stock per organization"""
@@ -288,7 +300,7 @@ with tabs[0]:
 
     st.divider()
     
-    # Per Company Stock by Size Table - ONLY AVAILABLE DATA
+    # Per Company Stock by Size Table - WITH COMPANY NAMES AS FIRST COLUMN
     st.subheader("📊 Stock by Company & Available Sizes")
     stock_size_table = stock_totals_by_org_size(stock_df)
     if not stock_size_table.empty:
@@ -304,10 +316,12 @@ with tabs[0]:
         st.bar_chart(pie_data.set_index("organization")["quantity"], height=400)
         # Display percentages
         total_stock = pie_data["quantity"].sum()
+        col1, col2, col3, col4 = st.columns(4)
         for idx, row in pie_data.iterrows():
             if row["quantity"] > 0:
                 pct = (row["quantity"] / total_stock * 100)
-                st.metric(f"{row['organization']}", f"{int(row['quantity'])}", f"{pct:.1f}%")
+                with locals()[f"col{idx+1}"]:
+                    st.metric(f"{row['organization']}", f"{int(row['quantity'])}", f"{pct:.1f}%")
     else:
         st.info("No stock data available for distribution chart.")
 
