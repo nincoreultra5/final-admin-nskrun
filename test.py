@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client
-import plotly.express as px
 
 # ---------------------------
 # Page config
@@ -187,10 +186,21 @@ def get_transactions_df(limit=5000):
 def stock_totals_by_org_size(stock_df: pd.DataFrame) -> pd.DataFrame:
     """Stock totals per organization and size"""
     if stock_df.empty:
-        return pd.DataFrame()
+        empty_df = pd.DataFrame(index=ORGS, columns=SIZES).fillna(0)
+        return empty_df
     
     totals = stock_df.groupby(["organization", "size"], as_index=False)["quantity"].sum()
-    return totals.pivot(index="organization", columns="size", values="quantity").fillna(0)
+    pivot = totals.pivot(index="organization", columns="size", values="quantity").fillna(0)
+    
+    # Ensure all organizations and sizes are present
+    for org in ORGS:
+        if org not in pivot.index:
+            pivot.loc[org] = 0
+    for size in SIZES:
+        if size not in pivot.columns:
+            pivot[size] = 0
+    
+    return pivot[ORGS + SIZES].reindex(ORGS)
 
 def current_stock_kpis(stock_df: pd.DataFrame) -> dict:
     """Current stock per organization"""
@@ -221,7 +231,7 @@ def get_out_by_org(tx_df: pd.DataFrame) -> dict:
     return results
 
 def stock_pie_data(stock_df: pd.DataFrame) -> pd.DataFrame:
-    """Data for pie chart - organization wise total stock"""
+    """Data for pie chart display"""
     if stock_df.empty:
         return pd.DataFrame({"organization": ORGS, "quantity": 0})
     
@@ -287,18 +297,20 @@ with tabs[0]:
     
     st.divider()
     
-    # Stock Pie Chart
+    # Simple Pie Chart using native Streamlit
     st.subheader("🍰 Stock Distribution by Organization")
-    fig_pie = px.pie(
-        pie_data, 
-        values="quantity", 
-        names="organization",
-        title="Total Stock Distribution",
-        color_discrete_sequence=px.colors.qualitative.Set3
-    )
-    fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-    fig_pie.update_layout(showlegend=True)
-    st.plotly_chart(fig_pie, use_container_width=True)
+    if not pie_data.empty and pie_data["quantity"].sum() > 0:
+        st.bar_chart(pie_data.set_index("organization")["quantity"], height=400)
+        # Display percentages manually
+        total_stock = pie_data["quantity"].sum()
+        col1, col2, col3, col4 = st.columns(4)
+        for idx, row in pie_data.iterrows():
+            if row["quantity"] > 0:
+                pct = (row["quantity"] / total_stock * 100)
+                with locals()[f"col{idx+1}"]:
+                    st.metric(f"{row['organization']}", f"{int(row['quantity'])}", f"{pct:.1f}%")
+    else:
+        st.info("No stock data available for pie chart.")
 
 # ---------------------------
 # Transactions Tab
