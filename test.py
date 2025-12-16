@@ -189,11 +189,6 @@ def sb_to_df(resp) -> pd.DataFrame:
     data = getattr(resp, "data", None) or []
     return pd.DataFrame(data)
 
-def require_login():
-    if "user" not in st.session_state or not st.session_state["user"]:
-        st.warning("Please login.")
-        st.stop()
-
 @st.cache_data(ttl=20)
 def get_stock_df():
     resp = client.table("stock").select("organization,category,size,quantity,updated_at").execute()
@@ -286,47 +281,6 @@ def tx_daily_series(tx_df: pd.DataFrame, start_date=None, end_date=None) -> pd.D
 st.markdown('<span class="brand-badge">Inventory Analytics</span>', unsafe_allow_html=True)
 st.title("T‑Shirt Inventory Dashboard")
 
-# ---------------------------
-# Sidebar - Login + Filters
-# ---------------------------
-with st.sidebar:
-    st.header("Login")
-
-    if "user" not in st.session_state:
-        st.session_state["user"] = None
-
-    if st.session_state["user"]:
-        u = st.session_state["user"]
-        st.success(f"Logged in: {u['name']} ({u['organization']})")
-        if st.button("Logout"):
-            st.session_state["user"] = None
-            st.rerun()
-    else:
-        username = st.text_input("Username", value="", key="login_username")
-        password = st.text_input("Password", value="", type="password", key="login_password")
-        if st.button("Login"):
-            resp = (
-                client.table("users")
-                .select("id,username,name,organization")
-                .eq("username", username.strip())
-                .eq("password", password.strip())
-                .maybe_single()
-                .execute()
-            )
-            data = getattr(resp, "data", None)
-            if not data:
-                st.error("Invalid credentials")
-            else:
-                st.session_state["user"] = data
-                st.rerun()
-
-    st.divider()
-    if st.button("Refresh data"):
-        st.cache_data.clear()
-        st.rerun()
-
-require_login()
-
 # Load data
 stock_df = get_stock_df()
 tx_df = get_transactions_df(limit=5000)
@@ -335,6 +289,9 @@ tx_df = get_transactions_df(limit=5000)
 min_date = tx_df["date"].min() if not tx_df.empty else None
 max_date = tx_df["date"].max() if not tx_df.empty else None
 
+# ---------------------------
+# Sidebar - Filters only
+# ---------------------------
 with st.sidebar:
     st.header("Filters")
     if min_date and max_date:
@@ -343,6 +300,11 @@ with st.sidebar:
     else:
         start_date, end_date = None, None
         st.info("No transactions yet, so date filter is disabled.")
+    
+    st.divider()
+    if st.button("Refresh data"):
+        st.cache_data.clear()
+        st.rerun()
 
 tabs = st.tabs(["Overview (Analytics)", "Transactions (Table)"])
 
